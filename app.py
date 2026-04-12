@@ -4,7 +4,7 @@ from PIL import Image
 
 # 1. Setup
 st.set_page_config(page_title="Multimodal AI Bot", page_icon="🎨")
-st.title("🤖 AI Chat with Vision")
+st.title("🤖 Lokesh's AI Chatbot")
 
 # API Key from Secrets
 api_key = st.secrets["GOOGLE_API_KEY"]
