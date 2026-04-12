@@ -5,6 +5,20 @@ import google.generativeai as genai
 st.set_page_config(page_title="Lokesh AI Chatbot", page_icon="🤖")
 st.title("🤖 Lokesh's AI Chatbot")
 
+with st.sidebar:
+    st.header("⚙️ Settings")
+    
+    # Let users choose the 'creativity' of the bot
+    temp = st.slider("Creativity (Temperature)", 0.0, 1.0, 0.7)
+    
+    # Add a Reset Button
+    if st.button("🗑️ Clear Chat History"):
+        st.session_state.messages = []
+        st.rerun()
+    
+    st.divider()
+    st.info("This bot is powered by Gemini 2.5 Flash.")
+
 # 2. Get API Key from Streamlit Secrets
 # (We will set this up in Step 3)
 api_key = st.secrets["GOOGLE_API_KEY"]
