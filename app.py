@@ -5,7 +5,7 @@ import json  # Moved to the top (Best Practice)
 
 # 1. Page Configuration
 st.set_page_config(page_title="Advanced AI Bot", page_icon="🚀", layout="wide")
-st.title("🤖 My Custom AI Assistant")
+st.title("🤖 Lokesh's AI Assistant")
 
 # Securely fetch API Key from Streamlit Secrets
 api_key = st.secrets["GOOGLE_API_KEY"]
