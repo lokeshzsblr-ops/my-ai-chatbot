@@ -1,6 +1,21 @@
 import streamlit as st
 import google.generativeai as genai
 
+st.markdown("""
+    <style>
+    /* Add a subtle shadow to the chat input box */
+    .stChatInputContainer {
+        border-radius: 20px;
+        box-shadow: 0px 4px 10px rgba(0,0,0,0.1);
+    }
+    /* Change the background of user messages specifically */
+    [data-testid="stChatMessage"]:nth-child(even) {
+        background-color: rgba(0, 122, 255, 0.05);
+        border-radius: 15px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 # 1. Page Config
 st.set_page_config(page_title="Lokesh AI Chatbot", page_icon="🤖")
 st.title("🤖 Lokesh's AI Chatbot")
