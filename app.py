@@ -14,6 +14,9 @@ genai.configure(api_key=api_key)
 # 2. Sidebar: Settings, File Upload, and History Export
 with st.sidebar:
     st.header("⚙️ Settings")
+
+    # NEW: Web Search Toggle
+    use_web_search = st.toggle("Enable Web Search", value=False, help="Allow the AI to search Google for the latest info.")
     
     # Creativity slider
     temp = st.slider("Creativity (Temperature)", 0.0, 1.0, 0.7)
