@@ -3,7 +3,7 @@ import google.generativeai as genai
 
 # 1. Page Config
 st.set_page_config(page_title="Lokesh AI Chatbot", page_icon="🤖")
-st.title("🤖 My Free AI Chatbot")
+st.title("🤖 Lokesh's AI Chatbot")
 
 # 2. Get API Key from Streamlit Secrets
 # (We will set this up in Step 3)
