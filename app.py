@@ -12,6 +12,39 @@ genai.configure(api_key=api_key)
 
 # 2. Sidebar: Settings & File Upload
 with st.sidebar:
+import json
+
+# ... inside the sidebar ...
+st.divider()
+st.header("💾 Export History")
+
+# Convert the chat history into a readable format
+if st.session_state.messages:
+    # Option A: Simple Text
+    chat_text = ""
+    for msg in st.session_state.messages:
+        chat_text += f"{msg['role'].upper()}: {msg['content']}\n\n"
+    
+    st.download_button(
+        label="Download Chat (.txt)",
+        data=chat_text,
+        file_name="chatbot_history.txt",
+        mime="text/plain",
+        use_container_width=True
+    )
+    
+    # Option B: JSON (For developers)
+    chat_json = json.dumps(st.session_state.messages, indent=4)
+    st.download_button(
+        label="Download Data (.json)",
+        data=chat_json,
+        file_name="chatbot_data.json",
+        mime="application/json",
+        use_container_width=True
+    )
+else:
+    st.info("No history to download yet.")
+    
     st.header("⚙️ Settings")
     
     # Creativity slider (Temperature)
