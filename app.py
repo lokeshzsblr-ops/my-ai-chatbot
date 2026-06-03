@@ -7,32 +7,6 @@ import json
 st.set_page_config(page_title="Advanced AI Bot", page_icon="🚀", layout="wide")
 st.title("🤖 Lokesh's AI Assistant")
 
-# --- Custom CSS for UI Styling ---
-st.markdown("""
-<style>
-/* Main app background */
-.stApp {
-    background-color: #D6EAF8; /* A light blue color */
-}
-
-/* Chat input box styling */
-[data-testid="stChatInput"] {
-    background-color: #000000; /* Black background for the input container */
-}
-
-/* Text area inside the chat input */
-[data-testid="stChatInput"] textarea {
-    color: #FFFFFF; /* White text for visibility */
-    background-color: transparent;
-}
-
-/* Placeholder text color in chat input */
-[data-testid="stChatInput"] textarea::placeholder {
-  color: #B0B0B0; /* Light gray for placeholder text */
-}
-</style>
-""", unsafe_allow_html=True)
-
 # Securely fetch API Key from Streamlit Secrets
 api_key = st.secrets["GOOGLE_API_KEY"]
 genai.configure(api_key=api_key)
@@ -94,32 +68,4 @@ model = genai.GenerativeModel(
 )
 
 # 4. Initialize & Display Chat History
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-for message in st.session_state.messages:
-    avatar = "🤖" if message["role"] == "assistant" else "👤"
-    with st.chat_message(message["role"], avatar=avatar):
-        st.markdown(message["content"])
-
-# 5. Chat Input & Response Logic
-if prompt := st.chat_input("Type your message here..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user", avatar="👤"):
-        st.markdown(prompt)
-
-    with st.chat_message("assistant", avatar="🤖"):
-        content_to_send = [prompt]
-        
-        if uploaded_file:
-            if uploaded_file.type.startswith("image"):
-                img = Image.open(uploaded_file)
-                content_to_send.append(img)
-            elif uploaded_file.type == "application/pdf":
-                pdf_data = {"mime_type": "application/pdf", "data": uploaded_file.getvalue()}
-                content_to_send.append(pdf_data)
-
-        response = model.generate_content(content_to_send)
-        st.markdown(response.text)
-    
-    st.session_state.messages.append({"role": "assistant", "content": response.text})
+if "messages" not in st.session_state
