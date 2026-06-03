@@ -1,11 +1,42 @@
+
+Download
+Copy
 import streamlit as st
 import google.generativeai as genai
 from PIL import Image
-import json  # Moved to the top (Best Practice)
+import json
 
 # 1. Page Configuration
 st.set_page_config(page_title="Advanced AI Bot", page_icon="🚀", layout="wide")
 st.title("🤖 Lokesh's AI Assistant")
+
+# --- NEW: Custom CSS for UI Styling ---
+# Injects custom CSS to change background and chat input colors.
+st.markdown("""
+<style>
+/* Main app background */
+.stApp {
+    background-color: #D6EAF8; /* This is a light blue. You can change the hex code. */
+}
+
+/* Chat input box styling */
+[data-testid="stChatInput"] {
+    background-color: #000000; /* Black background for the input container */
+}
+
+/* Text area inside the chat input */
+[data-testid="stChatInput"] textarea {
+    color: #FFFFFF; /* White text for visibility */
+    background-color: transparent; /* Ensure it uses the container's background */
+}
+
+/* Placeholder text color in chat input */
+[data-testid="stChatInput"] textarea::placeholder {
+  color: #B0B0B0; /* Light gray for placeholder text */
+}
+</style>
+""", unsafe_allow_html=True)
+
 
 # Securely fetch API Key from Streamlit Secrets
 api_key = st.secrets["GOOGLE_API_KEY"]
@@ -34,7 +65,7 @@ with st.sidebar:
 
     st.divider()
 
-    # --- NEW: History Export Section ---
+    # --- History Export Section ---
     st.header("💾 Export History")
     if "messages" in st.session_state and st.session_state.messages:
         # Convert history to simple text
