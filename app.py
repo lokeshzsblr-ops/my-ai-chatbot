@@ -68,4 +68,33 @@ model = genai.GenerativeModel(
 )
 
 # 4. Initialize & Display Chat History
-if "messages" not in st.session_state
+# THIS IS THE LINE THAT WAS CAUSING THE ERROR. A COLON (:) IS NOW ADDED.
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+for message in st.session_state.messages:
+    avatar = "🤖" if message["role"] == "assistant" else "👤"
+    with st.chat_message(message["role"], avatar=avatar):
+        st.markdown(message["content"])
+
+# 5. Chat Input & Response Logic
+if prompt := st.chat_input("Type your message here..."):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user", avatar="👤"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant", avatar="🤖"):
+        content_to_send = [prompt]
+        
+        if uploaded_file:
+            if uploaded_file.type.startswith("image"):
+                img = Image.open(uploaded_file)
+                content_to_send.append(img)
+            elif uploaded_file.type == "application/pdf":
+                pdf_data = {"mime_type": "application/pdf", "data": uploaded_file.getvalue()}
+                content_to_send.append(pdf_data)
+
+        response = model.generate_content(content_to_send)
+        st.markdown(response.text)
+    
+    st.session_state.messages.append({"role": "assistant", "content": response.text})
