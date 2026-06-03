@@ -1,6 +1,3 @@
-
-Download
-Copy
 import streamlit as st
 import google.generativeai as genai
 from PIL import Image
@@ -10,13 +7,12 @@ import json
 st.set_page_config(page_title="Advanced AI Bot", page_icon="🚀", layout="wide")
 st.title("🤖 Lokesh's AI Assistant")
 
-# --- NEW: Custom CSS for UI Styling ---
-# Injects custom CSS to change background and chat input colors.
+# --- Custom CSS for UI Styling ---
 st.markdown("""
 <style>
 /* Main app background */
 .stApp {
-    background-color: #D6EAF8; /* This is a light blue. You can change the hex code. */
+    background-color: #D6EAF8; /* A light blue color */
 }
 
 /* Chat input box styling */
@@ -27,7 +23,7 @@ st.markdown("""
 /* Text area inside the chat input */
 [data-testid="stChatInput"] textarea {
     color: #FFFFFF; /* White text for visibility */
-    background-color: transparent; /* Ensure it uses the container's background */
+    background-color: transparent;
 }
 
 /* Placeholder text color in chat input */
@@ -36,7 +32,6 @@ st.markdown("""
 }
 </style>
 """, unsafe_allow_html=True)
-
 
 # Securely fetch API Key from Streamlit Secrets
 api_key = st.secrets["GOOGLE_API_KEY"]
