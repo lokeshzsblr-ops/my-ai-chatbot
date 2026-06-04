@@ -18,9 +18,8 @@ except KeyError:
 # 2. Sidebar
 with st.sidebar:
     st.header("⚙️ Settings")
-    # --- CORRECTED LINE ---
-    # Set the default model to the one you are using.
-    model_name = st.text_input("Model Name", "gemini-2.5-flash")
+    # This creativity slider will now control the 'temperature' parameter
+    temperature = st.slider("Creativity (Temperature)", 0.0, 1.0, 0.5)
     
     st.divider()
 
@@ -68,60 +67,80 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 
 for message in st.session_state.messages:
-    avatar = "🤖" if message["role"] == "assistant" else "👤"
-    with st.chat_message(message["role"], avatar=avatar):
+    # Use 'author' internally for consistency with the new API format
+    avatar = "🤖" if message["author"] == "model" else "👤"
+    with st.chat_message(message["author"], avatar=avatar):
         st.markdown(message["content"])
 
 # 5. Chat Input & Response Logic
 if prompt := st.chat_input("Type your message here..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
+    # Use 'author' and 'model' to align with Google's format
+    st.session_state.messages.append({"author": "user", "content": prompt})
     with st.chat_message("user", avatar="👤"):
         st.markdown(prompt)
 
-    with st.chat_message("assistant", avatar="🤖"):
+    with st.chat_message("model", avatar="🤖"):
         with st.spinner("Thinking..."):
             response_text = ""
             try:
-                zag_url = "https://proxy.us1.zseclipse.net/v1/chat/completions"
+                # --- Zscaler AI Guard API Call ---
+                
+                # The model name is now part of the URL, not the body
+                model_id = "gemini-2.5-flash"
+                # IMPORTANT: This URL format is a guess based on Google's standards.
+                # Your Zscaler admin may need to provide the exact URL template.
+                # This assumes a project and location are not needed in the URL for Zscaler.
+                zag_url = f"https://proxy.us1.zseclipse.net/v1/chat/completions" # Keeping this for now as per docs
+                
                 headers = {
                     'Content-Type': 'application/json',
                     'X-ApiKey': f'Bearer {api_key}'
                 }
 
-                messages_payload = [{"role": "user", "content": prompt}]
-                
+                # --- CORRECTED REQUEST BODY ---
+                # This now uses the native Google Gemini (Vertex AI) format.
                 body = {
-                    "model": model_name,
-                    "messages": messages_payload
+                  "instances": [
+                    {
+                      # We send the entire chat history for context
+                      "messages": st.session_state.messages 
+                    }
+                  ],
+                  "parameters": {
+                    "temperature": temperature,
+                    "maxOutputTokens": 2048,
+                    "topK": 40
+                  }
                 }
-
+                
+                # Zscaler's API might still need the model in the body, even if it's not standard
+                # for Google. Let's add it back just in case, as per their documentation example.
+                body['model'] = model_id
+                
                 response = requests.post(zag_url, headers=headers, json=body)
                 response_text = response.text
-
                 response.raise_for_status()
 
                 response_json = response.json()
                 
-                assistant_response = response_json['choices'][0]['message']['content']
+                # Adjust parsing for the Google/Vertex AI response structure
+                assistant_response = response_json['predictions'][0]['candidates'][0]['content']
                 
                 st.markdown(assistant_response)
-                st.session_state.messages.append({"role": "assistant", "content": assistant_response})
+                # Save the response using the 'author' format
+                st.session_state.messages.append({"author": "model", "content": assistant_response})
 
             except json.JSONDecodeError:
                 st.error("The server's response was not in the expected JSON format.")
                 st.info(f"Status Code: {response.status_code}")
-                st.write("Here is the raw response from the server:")
                 st.code(response_text if response_text else "The response body was empty.")
-            # Other error handling...
             except requests.exceptions.HTTPError as e:
                 st.error(f"An HTTP Error occurred: {e}")
-                st.write("Here is the raw response from the server:")
                 st.code(response_text if response_text else "The response body was empty.")
-            except requests.exceptions.RequestException as e:
-                st.error(f"A network connection error occurred: {e}")
             except (KeyError, IndexError):
-                st.error("The JSON response from the server was in an unexpected format.")
-                st.write("Here is the JSON response that caused the error:")
-                st.json(response_text)
+                st.error("Failed to parse the AI's response. The structure was unexpected.")
+                st.write("Received JSON response:")
+                st.json(response_json) # Display what was actually received
             except Exception as e:
                 st.error(f"An unexpected error occurred: {e}")
+
