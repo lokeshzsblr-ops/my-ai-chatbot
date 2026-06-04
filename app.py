@@ -7,7 +7,7 @@ import requests
 st.set_page_config(page_title="Zscaler AI Guard Bot", page_icon="🛡️", layout="wide")
 st.title("🛡️ Lokesh's AI Assistant (via Zscaler AI Guard)")
 
-# Securely fetch Zscaler API Key from Streamlit Secrets
+# Securely fetch Zscaler API Key
 try:
     api_key = st.secrets["ZSCALER_API_KEY"]
 except KeyError:
@@ -77,12 +77,11 @@ if prompt := st.chat_input("Type your message here..."):
 
     with st.chat_message("assistant", avatar="🤖"):
         with st.spinner("Thinking..."):
+            response_text = "" # Initialize to ensure it's available for logging
             try:
                 # --- Zscaler AI Guard API Call ---
                 
-                # CORRECTED URL: Using 'proxy' as shown in the example documentation
                 zag_url = "https://proxy.us1.zseclipse.net/v1/chat/completions"
-                
                 headers = {
                     'Content-Type': 'application/json',
                     'X-ApiKey': f'Bearer {api_key}'
@@ -95,19 +94,40 @@ if prompt := st.chat_input("Type your message here..."):
                     "messages": messages_payload
                 }
 
+                # Make the request
                 response = requests.post(zag_url, headers=headers, json=body)
+                response_text = response.text # Store raw text for debugging
+
+                # Check for HTTP errors first
                 response.raise_for_status()
 
+                # Now, try to parse the JSON
                 response_json = response.json()
+                
+                # Extract the content
                 assistant_response = response_json['choices'][0]['message']['content']
                 
                 st.markdown(assistant_response)
                 st.session_state.messages.append({"role": "assistant", "content": assistant_response})
 
+            except json.JSONDecodeError:
+                st.error("The server's response was not in the expected JSON format.")
+                st.info(f"Status Code: {response.status_code}")
+                st.write("Here is the raw response from the server:")
+                st.code(response_text if response_text else "The response body was empty.")
+
+            except requests.exceptions.HTTPError as e:
+                st.error(f"An HTTP Error occurred: {e}")
+                st.write("Here is the raw response from the server:")
+                st.code(response_text if response_text else "The response body was empty.")
+
             except requests.exceptions.RequestException as e:
-                st.error(f"HTTP Request failed: {e}")
-            except (KeyError, IndexError) as e:
-                st.error("Failed to parse the response from the AI. The response format might be unexpected.")
-                st.json(response.json()) # Display the raw response for debugging
+                st.error(f"A network connection error occurred: {e}")
+
+            except (KeyError, IndexError):
+                st.error("The JSON response from the server was in an unexpected format.")
+                st.write("Here is the JSON response that caused the error:")
+                st.json(response_text)
+                
             except Exception as e:
                 st.error(f"An unexpected error occurred: {e}")
