@@ -18,43 +18,28 @@ except KeyError:
 # 2. Sidebar
 with st.sidebar:
     st.header("⚙️ Settings")
-    # This creativity slider will now control the 'temperature' parameter
     temperature = st.slider("Creativity (Temperature)", 0.0, 1.0, 0.5)
     
     st.divider()
-
     st.header("📂 Upload Center")
-    uploaded_file = st.file_uploader(
-        "Upload an image or PDF", 
-        type=["jpg", "jpeg", "png", "pdf"]
-    )
-    
+    # File uploader (functionality for sending file is still pending Zscaler docs)
+    uploaded_file = st.file_uploader("Upload an image or PDF", type=["jpg", "jpeg", "png", "pdf"])
     if uploaded_file:
         st.success("File ready!")
         if uploaded_file.type.startswith("image"):
-            img = Image.open(uploaded_file)
-            st.image(img, caption="Preview", use_container_width=True)
+            st.image(Image.open(uploaded_file), caption="Preview", use_container_width=True)
 
     st.divider()
-
     st.header("💾 Export History")
+    # Export and Clear buttons
     if "messages" in st.session_state and st.session_state.messages:
-        chat_text = ""
-        for msg in st.session_state.messages:
-            chat_text += f"{msg['role'].upper()}: {msg['content']}\n\n"
-        
-        st.download_button(
-            label="Download Chat (.txt)",
-            data=chat_text,
-            file_name="chatbot_history.txt",
-            mime="text/plain",
-            use_container_width=True
-        )
+        # Simplified export logic
+        chat_text = "\n\n".join([f"{msg.get('author', msg.get('role', 'unknown')).upper()}: {msg['content']}" for msg in st.session_state.messages])
+        st.download_button("Download Chat (.txt)", chat_text, "chatbot_history.txt", "text/plain", use_container_width=True)
     else:
         st.info("No history yet.")
     
     st.divider()
-
     if st.button("🗑️ Clear Chat History", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
@@ -62,60 +47,58 @@ with st.sidebar:
     st.info("Proxying via Zscaler AI Guard")
 
 
-# 4. Initialize & Display Chat History
+# 3. Initialize Chat History (if it doesn't exist)
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+
+# 4. Display Chat History (with Backward Compatibility)
+# --- THIS IS THE CORRECTED SECTION ---
 for message in st.session_state.messages:
-    # Use 'author' internally for consistency with the new API format
-    avatar = "🤖" if message["author"] == "model" else "👤"
-    with st.chat_message(message["author"], avatar=avatar):
+    # Determine the role for display purposes, handling both old ('role') and
+    # new ('author') message formats to prevent errors with old history.
+    if "author" in message:
+        # New format: author is 'user' or 'model'
+        display_role = "assistant" if message["author"] == "model" else "user"
+    else:
+        # Old format: role is 'user' or 'assistant'
+        display_role = message.get("role", "user")
+
+    avatar = "🤖" if display_role == "assistant" else "👤"
+    with st.chat_message(display_role, avatar=avatar):
         st.markdown(message["content"])
+
 
 # 5. Chat Input & Response Logic
 if prompt := st.chat_input("Type your message here..."):
-    # Use 'author' and 'model' to align with Google's format
+    # Append user message in the new 'author' format
     st.session_state.messages.append({"author": "user", "content": prompt})
     with st.chat_message("user", avatar="👤"):
         st.markdown(prompt)
 
-    with st.chat_message("model", avatar="🤖"):
+    with st.chat_message("assistant", avatar="🤖"):
         with st.spinner("Thinking..."):
             response_text = ""
             try:
-                # --- Zscaler AI Guard API Call ---
-                
-                # The model name is now part of the URL, not the body
                 model_id = "gemini-2.5-flash"
-                # IMPORTANT: This URL format is a guess based on Google's standards.
-                # Your Zscaler admin may need to provide the exact URL template.
-                # This assumes a project and location are not needed in the URL for Zscaler.
-                zag_url = f"https://proxy.us1.zseclipse.net/v1/chat/completions" # Keeping this for now as per docs
+                zag_url = "https://proxy.us1.zseclipse.net/v1/chat/completions"
                 
                 headers = {
                     'Content-Type': 'application/json',
                     'X-ApiKey': f'Bearer {api_key}'
                 }
 
-                # --- CORRECTED REQUEST BODY ---
-                # This now uses the native Google Gemini (Vertex AI) format.
+                # Construct the body in the native Google Gemini format
                 body = {
+                  "model": model_id, # Zscaler docs imply model is still needed here
                   "instances": [
-                    {
-                      # We send the entire chat history for context
-                      "messages": st.session_state.messages 
-                    }
+                    { "messages": st.session_state.messages }
                   ],
                   "parameters": {
                     "temperature": temperature,
-                    "maxOutputTokens": 2048,
-                    "topK": 40
+                    "maxOutputTokens": 2048
                   }
                 }
-                
-                # Zscaler's API might still need the model in the body, even if it's not standard
-                # for Google. Let's add it back just in case, as per their documentation example.
-                body['model'] = model_id
                 
                 response = requests.post(zag_url, headers=headers, json=body)
                 response_text = response.text
@@ -123,13 +106,14 @@ if prompt := st.chat_input("Type your message here..."):
 
                 response_json = response.json()
                 
-                # Adjust parsing for the Google/Vertex AI response structure
+                # Parse the Google/Vertex AI response structure
                 assistant_response = response_json['predictions'][0]['candidates'][0]['content']
                 
                 st.markdown(assistant_response)
-                # Save the response using the 'author' format
+                # Append assistant response in the new 'author' format
                 st.session_state.messages.append({"author": "model", "content": assistant_response})
 
+            # ... (rest of the error handling is the same) ...
             except json.JSONDecodeError:
                 st.error("The server's response was not in the expected JSON format.")
                 st.info(f"Status Code: {response.status_code}")
@@ -140,7 +124,6 @@ if prompt := st.chat_input("Type your message here..."):
             except (KeyError, IndexError):
                 st.error("Failed to parse the AI's response. The structure was unexpected.")
                 st.write("Received JSON response:")
-                st.json(response_json) # Display what was actually received
+                st.json(response.json())
             except Exception as e:
                 st.error(f"An unexpected error occurred: {e}")
-
