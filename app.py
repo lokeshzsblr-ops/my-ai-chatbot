@@ -18,7 +18,10 @@ except KeyError:
 # 2. Sidebar
 with st.sidebar:
     st.header("⚙️ Settings")
-    model_name = st.text_input("Model Name", "gpt-3.5-turbo")
+    # --- CORRECTED LINE ---
+    # Set the default model to the one you are using.
+    model_name = st.text_input("Model Name", "gemini-2.5-flash")
+    
     st.divider()
 
     st.header("📂 Upload Center")
@@ -77,10 +80,8 @@ if prompt := st.chat_input("Type your message here..."):
 
     with st.chat_message("assistant", avatar="🤖"):
         with st.spinner("Thinking..."):
-            response_text = "" # Initialize to ensure it's available for logging
+            response_text = ""
             try:
-                # --- Zscaler AI Guard API Call ---
-                
                 zag_url = "https://proxy.us1.zseclipse.net/v1/chat/completions"
                 headers = {
                     'Content-Type': 'application/json',
@@ -94,17 +95,13 @@ if prompt := st.chat_input("Type your message here..."):
                     "messages": messages_payload
                 }
 
-                # Make the request
                 response = requests.post(zag_url, headers=headers, json=body)
-                response_text = response.text # Store raw text for debugging
+                response_text = response.text
 
-                # Check for HTTP errors first
                 response.raise_for_status()
 
-                # Now, try to parse the JSON
                 response_json = response.json()
                 
-                # Extract the content
                 assistant_response = response_json['choices'][0]['message']['content']
                 
                 st.markdown(assistant_response)
@@ -115,19 +112,16 @@ if prompt := st.chat_input("Type your message here..."):
                 st.info(f"Status Code: {response.status_code}")
                 st.write("Here is the raw response from the server:")
                 st.code(response_text if response_text else "The response body was empty.")
-
+            # Other error handling...
             except requests.exceptions.HTTPError as e:
                 st.error(f"An HTTP Error occurred: {e}")
                 st.write("Here is the raw response from the server:")
                 st.code(response_text if response_text else "The response body was empty.")
-
             except requests.exceptions.RequestException as e:
                 st.error(f"A network connection error occurred: {e}")
-
             except (KeyError, IndexError):
                 st.error("The JSON response from the server was in an unexpected format.")
                 st.write("Here is the JSON response that caused the error:")
                 st.json(response_text)
-                
             except Exception as e:
                 st.error(f"An unexpected error occurred: {e}")
