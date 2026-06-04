@@ -18,26 +18,12 @@ except KeyError:
 # 2. Sidebar
 with st.sidebar:
     st.header("⚙️ Settings")
-    temperature = st.slider("Creativity (Temperature)", 0.0, 1.0, 0.5)
+    # --- UPDATED LINE ---
+    # Using the model ID you specified as the default.
+    model_name = st.text_input("Model ID", "gemini-2.5-flash")
     
-    st.divider()
-    st.header("📂 Upload Center")
-    # File uploader (functionality for sending file is still pending Zscaler docs)
-    uploaded_file = st.file_uploader("Upload an image or PDF", type=["jpg", "jpeg", "png", "pdf"])
-    if uploaded_file:
-        st.success("File ready!")
-        if uploaded_file.type.startswith("image"):
-            st.image(Image.open(uploaded_file), caption="Preview", use_container_width=True)
-
-    st.divider()
-    st.header("💾 Export History")
-    # Export and Clear buttons
-    if "messages" in st.session_state and st.session_state.messages:
-        # Simplified export logic
-        chat_text = "\n\n".join([f"{msg.get('author', msg.get('role', 'unknown')).upper()}: {msg['content']}" for msg in st.session_state.messages])
-        st.download_button("Download Chat (.txt)", chat_text, "chatbot_history.txt", "text/plain", use_container_width=True)
-    else:
-        st.info("No history yet.")
+    st.caption("↑ IMPORTANT: This must be the exact ID from your Zscaler AI Guard policy.")
+    temperature = st.slider("Creativity (Temperature)", 0.0, 1.0, 0.5)
     
     st.divider()
     if st.button("🗑️ Clear Chat History", use_container_width=True):
@@ -47,57 +33,54 @@ with st.sidebar:
     st.info("Proxying via Zscaler AI Guard")
 
 
-# 3. Initialize Chat History (if it doesn't exist)
+# 3. Initialize & Display Chat History
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-
-# 4. Display Chat History (with Backward Compatibility)
-# --- THIS IS THE CORRECTED SECTION ---
 for message in st.session_state.messages:
-    # Determine the role for display purposes, handling both old ('role') and
-    # new ('author') message formats to prevent errors with old history.
-    if "author" in message:
-        # New format: author is 'user' or 'model'
-        display_role = "assistant" if message["author"] == "model" else "user"
-    else:
-        # Old format: role is 'user' or 'assistant'
-        display_role = message.get("role", "user")
-
-    avatar = "🤖" if display_role == "assistant" else "👤"
-    with st.chat_message(display_role, avatar=avatar):
-        st.markdown(message["content"])
+    role = message.get("role")
+    display_role = "assistant" if role == "model" else role
+        
+    with st.chat_message(display_role or "user"):
+        if "parts" in message:
+            st.markdown(message["parts"][0]["text"])
+        else:
+            st.markdown(message.get("content", ""))
 
 
-# 5. Chat Input & Response Logic
+# 4. Chat Input & Response Logic
 if prompt := st.chat_input("Type your message here..."):
-    # Append user message in the new 'author' format
-    st.session_state.messages.append({"author": "user", "content": prompt})
-    with st.chat_message("user", avatar="👤"):
+    st.session_state.messages.append({"role": "user", "parts": [{"text": prompt}]})
+    with st.chat_message("user"):
         st.markdown(prompt)
 
-    with st.chat_message("assistant", avatar="🤖"):
+    with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             response_text = ""
             try:
-                model_id = "gemini-2.5-flash"
-                zag_url = "https://proxy.us1.zseclipse.net/v1/chat/completions"
+                zag_url = f"https://proxy.zseclipse.net/v1beta/models/{model_name}:generateContent"
                 
                 headers = {
                     'Content-Type': 'application/json',
                     'X-ApiKey': f'Bearer {api_key}'
                 }
 
-                # Construct the body in the native Google Gemini format
+                # Convert chat history to the correct API format on-the-fly
+                converted_history = []
+                for msg in st.session_state.messages:
+                    if "parts" in msg:
+                        converted_history.append(msg)
+                    else:
+                        api_role = "model" if msg.get("role") == "assistant" else "user"
+                        converted_history.append({"role": api_role, "parts": [{"text": msg.get("content", "")}]})
+
+                # Construct the native Google Gemini request body
                 body = {
-                  "model": model_id, # Zscaler docs imply model is still needed here
-                  "instances": [
-                    { "messages": st.session_state.messages }
-                  ],
-                  "parameters": {
-                    "temperature": temperature,
-                    "maxOutputTokens": 2048
-                  }
+                    "contents": converted_history,
+                    "generationConfig": {
+                        "temperature": temperature,
+                        "maxOutputTokens": 2048
+                    }
                 }
                 
                 response = requests.post(zag_url, headers=headers, json=body)
@@ -106,14 +89,12 @@ if prompt := st.chat_input("Type your message here..."):
 
                 response_json = response.json()
                 
-                # Parse the Google/Vertex AI response structure
-                assistant_response = response_json['predictions'][0]['candidates'][0]['content']
+                # Parse the native Gemini response
+                assistant_response = response_json['candidates'][0]['content']['parts'][0]['text']
                 
                 st.markdown(assistant_response)
-                # Append assistant response in the new 'author' format
-                st.session_state.messages.append({"author": "model", "content": assistant_response})
+                st.session_state.messages.append({"role": "model", "parts": [{"text": assistant_response}]})
 
-            # ... (rest of the error handling is the same) ...
             except json.JSONDecodeError:
                 st.error("The server's response was not in the expected JSON format.")
                 st.info(f"Status Code: {response.status_code}")
@@ -123,7 +104,9 @@ if prompt := st.chat_input("Type your message here..."):
                 st.code(response_text if response_text else "The response body was empty.")
             except (KeyError, IndexError):
                 st.error("Failed to parse the AI's response. The structure was unexpected.")
-                st.write("Received JSON response:")
+                st.write("Received JSON response that caused the error:")
                 st.json(response.json())
             except Exception as e:
                 st.error(f"An unexpected error occurred: {e}")
+                st.write("Raw response text during error:")
+                st.code(response_text)
