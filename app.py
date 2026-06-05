@@ -1,7 +1,6 @@
 import streamlit as st
 import json
 import requests
-import google.generativeai as genai
 
 # 1. Page Configuration
 st.set_page_config(page_title="Zscaler DAS/API Bot", page_icon="🛡️", layout="wide")
@@ -9,21 +8,18 @@ st.title("🛡️ Lokesh's AI Assistant (Zscaler DAS/API Mode)")
 
 # Securely fetch API Keys from Streamlit secrets
 try:
-    zscaler_api_key = st.secrets["ZSCALER_API_KEY"]
-    google_api_key  = st.secrets["GOOGLE_API_KEY"]
+    zscaler_api_key = st.secrets["ZSCALER_API_KEY"]   # AI Guard Token
+    zscaler_app_id  = st.secrets["ZSCALER_APP_ID"]    # Application ID
 except KeyError as e:
     st.error(f"Missing secret: {e}. Please add it to your Streamlit secrets.")
     st.stop()
-
-# Configure the Google Gemini client
-genai.configure(api_key=google_api_key)
 
 
 # 2. Sidebar for settings
 with st.sidebar:
     st.header("⚙️ Settings")
-    model_name   = st.text_input("Google Model ID", "gemini-2.5-flash")
-    temperature  = st.slider("Creativity (Temperature)", 0.0, 1.0, 0.5)
+    model_name  = st.text_input("Google Model ID", "gemini-2.5-flash")
+    temperature = st.slider("Creativity (Temperature)", 0.0, 1.0, 0.5)
 
     st.divider()
     if st.button("🗑️ Clear Chat History", use_container_width=True):
@@ -33,28 +29,7 @@ with st.sidebar:
     st.info("Mode: DAS/API (Resolve & Execute)")
 
 
-# 3. Helper: Call Zscaler policy evaluation endpoint
-def evaluate_with_zscaler(text: str, direction: str) -> dict:
-    """
-    Sends text to Zscaler AI Guard for policy evaluation.
-    direction: "outbound" (user prompt) or "inbound" (LLM response)
-    Returns the full JSON response from Zscaler.
-    """
-    url     = "https://api.zseclipse.net/v1/detection/resolve-and-execute-policy"
-    headers = {
-        "Content-Type":  "application/json",
-        "Authorization": f"Bearer {zscaler_api_key}"
-    }
-    body = {
-        "direction": direction,
-        "content":   text
-    }
-    response = requests.post(url, headers=headers, json=body)
-    response.raise_for_status()
-    return response.json()
-
-
-# 4. Initialize & Display Chat History
+# 3. Initialize & Display Chat History
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -64,7 +39,7 @@ for message in st.session_state.messages:
         st.markdown(message["parts"][0]["text"])
 
 
-# 5. Chat Input & Response Logic
+# 4. Chat Input & Response Logic
 if prompt := st.chat_input("Type your message here..."):
 
     # Display user message immediately
@@ -73,51 +48,61 @@ if prompt := st.chat_input("Type your message here..."):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        response_text = ""
         try:
-            # ── STEP 1: Evaluate the outbound prompt with Zscaler ──────────────
-            with st.spinner("🛡️ Zscaler: Evaluating your prompt..."):
-                zs_outbound = evaluate_with_zscaler(prompt, "outbound")
+            with st.spinner("🛡️ Sending request through Zscaler AI Guard..."):
 
-            # Check if Zscaler blocked the prompt
-            action = zs_outbound.get("action", "").lower()
-            if action == "block":
-                st.error("🚫 Zscaler AI Guard blocked this prompt based on your company's policy.")
-                st.json(zs_outbound)
-                st.stop()
+                # --- Step 1: Define the correct endpoint and headers ---
+                zscaler_endpoint_url = "https://api.zseclipse.net/v1/detection/resolve-and-execute-policy"
 
-            # ── STEP 2: Call Google Gemini directly ────────────────────────────
-            with st.spinner("🤖 Contacting Gemini..."):
-                gemini_model = genai.GenerativeModel(
-                    model_name=model_name,
-                    generation_config=genai.types.GenerationConfig(
-                        temperature=temperature,
-                        max_output_tokens=4096
-                    )
+                # TWO credentials are required:
+                # Authorization header → your AI Guard Bearer Token
+                # X-ApiKey header      → your Application ID
+                headers = {
+                    "Content-Type":  "application/json",
+                    "Authorization": f"Bearer {zscaler_api_key}",
+                    "X-ApiKey":      zscaler_app_id
+                }
+
+                # --- Step 2: Build the request body exactly as the documentation specifies ---
+                # provider and model are required top-level fields.
+                # contents uses the native Gemini format with the full chat history.
+                request_body = {
+                    "provider": "google",
+                    "model":    model_name,
+                    "contents": st.session_state.messages
+                }
+
+                # --- Step 3: Send the request to Zscaler ---
+                response = requests.post(
+                    zscaler_endpoint_url,
+                    headers=headers,
+                    json=request_body
                 )
-                gemini_response = gemini_model.generate_content(
-                    st.session_state.messages
-                )
-                llm_reply = gemini_response.text
+                response_text = response.text
+                response.raise_for_status()
+                zscaler_response = response.json()
 
-            # ── STEP 3: Evaluate the inbound LLM response with Zscaler ─────────
-            with st.spinner("🛡️ Zscaler: Evaluating AI response..."):
-                zs_inbound = evaluate_with_zscaler(llm_reply, "inbound")
+                # --- Step 4: Check if Zscaler blocked the request ---
+                action = zscaler_response.get("action", "").lower()
+                if action == "block":
+                    st.error("🚫 Zscaler AI Guard blocked this request based on your company's policy.")
+                    st.json(zscaler_response)
+                    st.stop()
 
-            # Check if Zscaler blocked the response
-            action = zs_inbound.get("action", "").lower()
-            if action == "block":
-                st.error("🚫 Zscaler AI Guard blocked the AI's response based on your company's policy.")
-                st.json(zs_inbound)
-                st.stop()
+                # --- Step 5: Extract the Gemini response from Zscaler's reply ---
+                # Zscaler calls Google on our behalf and returns the response directly.
+                assistant_response = zscaler_response['candidates'][0]['content']['parts'][0]['text']
 
-            # ── STEP 4: Display and store the response ─────────────────────────
-            st.markdown(llm_reply)
-            st.session_state.messages.append({"role": "model", "parts": [{"text": llm_reply}]})
+                st.markdown(assistant_response)
+                st.session_state.messages.append({"role": "model", "parts": [{"text": assistant_response}]})
 
         except requests.exceptions.HTTPError as e:
             st.error(f"Zscaler API Error: {e}")
             st.code(e.response.text if e.response else "No response body.")
+        except (KeyError, IndexError) as e:
+            st.error("Failed to parse the response. The structure was unexpected.")
+            st.write(f"Error on key: `{e}`")
+            st.write("Full response received:")
+            st.json(zscaler_response)
         except Exception as e:
             st.error(f"An unexpected error occurred: {e}")
-            st.code(response_text)
