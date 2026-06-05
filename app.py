@@ -18,9 +18,8 @@ except KeyError:
 # 2. Sidebar for settings
 with st.sidebar:
     st.header("⚙️ Settings")
-    # This is the programmatic ID of the model, e.g., gemini-1.5-flash-latest
-    model_name = st.text_input("Google Model ID", "gemini-1.5-flash-latest")
-    st.caption("↑ Find this exact ID in your Google AI documentation.")
+    model_name = st.text_input("Google Model ID", "gemini-2.5-flash")
+    st.caption("↑ This is the programmatic ID for the model.")
     
     temperature = st.slider("Creativity (Temperature)", 0.0, 1.0, 0.5)
     
@@ -32,21 +31,18 @@ with st.sidebar:
     st.info("Mode: DAS/API (Resolve & Execute)")
 
 
-# 3. Initialize & Display Chat History (using Google Gemini's native format)
+# 3. Initialize & Display Chat History
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
 for message in st.session_state.messages:
-    # Determine the role for display ("user" or "assistant")
     role = "assistant" if message.get("role") == "model" else "user"
     with st.chat_message(role):
-        # Display the text content from the 'parts' list
         st.markdown(message["parts"][0]["text"])
 
 
 # 4. Chat Input & Response Logic
 if prompt := st.chat_input("Type your message here..."):
-    # Append the user's message to the session state in the correct format
     st.session_state.messages.append({"role": "user", "parts": [{"text": prompt}]})
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -56,7 +52,9 @@ if prompt := st.chat_input("Type your message here..."):
             response_text = ""
             try:
                 # --- Step 1: Define Endpoints and Headers ---
-                zscaler_resolve_url = "https://api.zseclipse.net/ai-guard/v1/resolve"
+                # This is the confirmed correct URL, combining the regional hostname
+                # and the AI Guard-specific API path.
+                zscaler_resolve_url = "https://api.us1.zseclipse.net/ai-guard/v1/resolve"
                 google_api_path = f"/v1beta/models/{model_name}:generateContent"
                 
                 headers = {
@@ -65,7 +63,6 @@ if prompt := st.chat_input("Type your message here..."):
                 }
 
                 # --- Step 2: Construct the Native Google Gemini Request Body ---
-                # This is the request that will be wrapped and sent to Google
                 native_google_body = {
                     "contents": st.session_state.messages,
                     "generationConfig": {
@@ -75,11 +72,10 @@ if prompt := st.chat_input("Type your message here..."):
                 }
 
                 # --- Step 3: Construct the Zscaler AI Guard "Envelope" Body ---
-                # This wraps the Google request as per DAS/API Mode Option 2 documentation
                 zscaler_envelope_body = {
                     "invocations": [
                         {
-                            "id": str(uuid.uuid4()), # Unique ID for the invocation
+                            "id": str(uuid.uuid4()),
                             "protocol": "http",
                             "provider": "google",
                             "request": {
@@ -97,32 +93,29 @@ if prompt := st.chat_input("Type your message here..."):
                 
                 # --- Step 4: Make the API Call to the Zscaler /resolve Endpoint ---
                 response = requests.post(zscaler_resolve_url, headers=headers, json=zscaler_envelope_body)
-                response_text = response.text # Save raw text for debugging
+                response_text = response.text
                 response.raise_for_status()
                 zscaler_response_json = response.json()
 
-                # --- Step 5: Parse the Zscaler Response to get the Google Response ---
+                # --- Step 5: Parse the Zscaler Response ---
                 invocation_result = zscaler_response_json['invocations'][0]
                 
                 if invocation_result.get("status") != "forwarded":
-                    # Policy denied the request or another error occurred at Zscaler
                     error_details = invocation_result.get("error", "No error details provided.")
                     st.error(f"Zscaler AI Guard did not forward the request. Status: {invocation_result.get('status')}")
                     st.json(error_details)
                     st.stop()
 
-                # The request was forwarded, now get the body from Google's response
                 google_response_body = invocation_result["response"]["body"]
                 
-                # --- Step 6: Parse the Native Google Response Body ---
+                # --- Step 6: Parse the Native Google Response ---
                 assistant_response = google_response_body['candidates'][0]['content']['parts'][0]['text']
                 
                 st.markdown(assistant_response)
-                # Append the assistant's response to the chat history
                 st.session_state.messages.append({"role": "model", "parts": [{"text": assistant_response}]})
 
             except json.JSONDecodeError:
-                st.error("A JSON decoding error occurred. This can happen if the response is not valid JSON.")
+                st.error("A JSON decoding error occurred.")
                 st.info(f"Status Code: {response.status_code}")
                 st.code(response_text if response_text else "The response body was empty.")
             except requests.exceptions.HTTPError as e:
