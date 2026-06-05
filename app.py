@@ -1,7 +1,7 @@
 import streamlit as st
 import json
 import requests
-import uuid # Still useful for potential logging/tracing
+import uuid
 
 # 1. Page Configuration
 st.set_page_config(page_title="Zscaler DAS/API Bot", page_icon="🛡️", layout="wide")
@@ -28,7 +28,7 @@ with st.sidebar:
         st.session_state.messages = []
         st.rerun()
     
-    st.info("Mode: DAS/API (Direct Native Request)")
+    st.info("Mode: DAS/API (Resolve & Execute)")
 
 
 # 3. Initialize & Display Chat History
@@ -48,11 +48,16 @@ if prompt := st.chat_input("Type your message here..."):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Sending request through Zscaler AI Guard..."):
+        with st.spinner("Contacting Zscaler AI Guard..."):
             response_text = ""
             try:
-                # --- Step 1: Define the Correct Endpoint and Headers ---
-                zscaler_endpoint_url = "https://api.us1.zseclipse.net/v1/detection/resolve-and-execute-policy"
+                # --- Step 1: Define Endpoints and Headers ---
+                #
+                # --- THIS IS THE CORRECTED URL ---
+                # Using the exact endpoint from the documentation, without any regional identifier.
+                #
+                zscaler_endpoint_url = "https://api.zseclipse.net/v1/detection/resolve-and-execute-policy"
+                google_api_path = f"/v1beta/models/{model_name}:generateContent"
                 
                 headers = {
                     'Content-Type': 'application/json',
@@ -60,46 +65,70 @@ if prompt := st.chat_input("Type your message here..."):
                 }
 
                 # --- Step 2: Construct the Native Google Gemini Request Body ---
-                # This is the ONLY body we will use now.
                 native_google_body = {
                     "contents": st.session_state.messages,
                     "generationConfig": {
                         "temperature": temperature,
                         "maxOutputTokens": 4096
-                    },
-                    # We might need to tell Zscaler which model we intend to use
-                    # since we are no longer using the "provider" field.
-                    "model": model_name
+                    }
+                }
+
+                # --- Step 3: Construct the Zscaler AI Guard "Envelope" Body ---
+                # Reverting to the "invocations" wrapper, which this endpoint likely requires.
+                zscaler_envelope_body = {
+                    "invocations": [
+                        {
+                            "id": str(uuid.uuid4()),
+                            "protocol": "http",
+                            "provider": "google",
+                            "request": {
+                                "uri": {
+                                    "path": google_api_path
+                                },
+                                "headers": {
+                                    "Content-Type": "application/json"
+                                },
+                                "body": native_google_body
+                            }
+                        }
+                    ]
                 }
                 
-                # --- Step 3: Make the API Call Directly with the Native Body ---
-                # We are NO LONGER using the complex "invocations" envelope.
-                response = requests.post(zscaler_endpoint_url, headers=headers, json=native_google_body)
+                # --- Step 4: Make the API Call to the CORRECT Zscaler Endpoint ---
+                response = requests.post(zscaler_endpoint_url, headers=headers, json=zscaler_envelope_body)
                 response_text = response.text
-                response.raise_for_status() # This will trigger on 4xx or 5xx errors
+                response.raise_for_status()
+                zscaler_response_json = response.json()
+
+                # --- Step 5: Parse the Zscaler Response ---
+                invocation_result = zscaler_response_json['invocations'][0]
                 
-                # --- Step 4: Parse the Response as a Direct Native Response ---
-                # If the request succeeds, the body should be the direct response from Google.
-                google_response_json = response.json()
+                if invocation_result.get("status") != "forwarded":
+                    error_details = invocation_result.get("error", "No error details provided.")
+                    st.error(f"Zscaler AI Guard did not forward the request. Status: {invocation_result.get('status')}")
+                    st.json(error_details)
+                    st.stop()
+
+                google_response_body = invocation_result["response"]["body"]
                 
-                assistant_response = google_response_json['candidates'][0]['content']['parts'][0]['text']
+                # --- Step 6: Parse the Native Google Response ---
+                assistant_response = google_response_body['candidates'][0]['content']['parts'][0]['text']
                 
                 st.markdown(assistant_response)
                 st.session_state.messages.append({"role": "model", "parts": [{"text": assistant_response}]})
 
             except json.JSONDecodeError:
-                st.error("A JSON decoding error occurred. The response may not be valid JSON.")
+                st.error("A JSON decoding error occurred.")
                 st.info(f"Status Code: {response.status_code}")
                 st.code(response_text if response_text else "The response body was empty.")
             except requests.exceptions.HTTPError as e:
                 st.error(f"An HTTP Error occurred: {e}")
-                st.write("This often means the request body is still not what the server expects.")
                 st.code(response_text if response_text else "The response body was empty.")
             except (KeyError, IndexError) as e:
-                st.error("Failed to parse the AI's response. The structure was unexpected.")
+                st.error("Failed to parse the AI's response. The data structure was unexpected.")
                 st.write("Error occurred when accessing key:", str(e))
-                st.write("Received JSON that caused the error:")
-                st.json(response.json())
+                st.write("Received Zscaler JSON that caused the error:")
+                st.json(zscaler_response_json)
             except Exception as e:
                 st.error(f"An unexpected error occurred: {e}")
                 st.write("Raw response text during error:")
