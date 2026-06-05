@@ -52,9 +52,11 @@ if prompt := st.chat_input("Type your message here..."):
             response_text = ""
             try:
                 # --- Step 1: Define Endpoints and Headers ---
-                # This is the confirmed correct URL, combining the regional hostname
-                # and the AI Guard-specific API path.
-                zscaler_resolve_url = "https://api.us1.zseclipse.net/ai-guard/v1/resolve"
+                #
+                # --- THIS IS THE CORRECTED URL ---
+                # Combining the user-provided path with the required regional hostname.
+                #
+                zscaler_endpoint_url = "https://api.us1.zseclipse.net/v1/detection/resolve-and-execute-policy"
                 google_api_path = f"/v1beta/models/{model_name}:generateContent"
                 
                 headers = {
@@ -91,8 +93,8 @@ if prompt := st.chat_input("Type your message here..."):
                     ]
                 }
                 
-                # --- Step 4: Make the API Call to the Zscaler /resolve Endpoint ---
-                response = requests.post(zscaler_resolve_url, headers=headers, json=zscaler_envelope_body)
+                # --- Step 4: Make the API Call to the CORRECT Zscaler Endpoint ---
+                response = requests.post(zscaler_endpoint_url, headers=headers, json=zscaler_envelope_body)
                 response_text = response.text
                 response.raise_for_status()
                 zscaler_response_json = response.json()
