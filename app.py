@@ -50,13 +50,16 @@ if prompt := st.chat_input("Type your message here..."):
     with st.chat_message("assistant"):
         with st.spinner("Contacting Zscaler AI Guard..."):
             response_text = ""
+            zscaler_response_json = {}
             try:
                 # --- Step 1: Define Endpoints and Headers ---
                 #
                 # --- THIS IS THE CORRECTED URL ---
-                # Using the exact endpoint from the documentation, without any regional identifier.
+                # The server auto-prepends /v1/authenticate-llm-app to all requests.
+                # The error response "path" field revealed the true base path.
+                # So the full correct URL must include it explicitly.
                 #
-                zscaler_endpoint_url = "https://api.zseclipse.net/v1/detection/resolve-and-execute-policy"
+                zscaler_endpoint_url = "https://api.zseclipse.net/v1/authenticate-llm-app/v1/detection/resolve-and-execute-policy"
                 google_api_path = f"/v1beta/models/{model_name}:generateContent"
                 
                 headers = {
@@ -74,7 +77,6 @@ if prompt := st.chat_input("Type your message here..."):
                 }
 
                 # --- Step 3: Construct the Zscaler AI Guard "Envelope" Body ---
-                # Reverting to the "invocations" wrapper, which this endpoint likely requires.
                 zscaler_envelope_body = {
                     "invocations": [
                         {
@@ -94,7 +96,7 @@ if prompt := st.chat_input("Type your message here..."):
                     ]
                 }
                 
-                # --- Step 4: Make the API Call to the CORRECT Zscaler Endpoint ---
+                # --- Step 4: Make the API Call ---
                 response = requests.post(zscaler_endpoint_url, headers=headers, json=zscaler_envelope_body)
                 response_text = response.text
                 response.raise_for_status()
