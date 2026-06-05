@@ -84,13 +84,13 @@ if "messages" not in st.session_state:
 if "uploaded_file_data" not in st.session_state:
     st.session_state.uploaded_file_data = []
 if "debug_logs" not in st.session_state:
-    st.session_state.debug_logs = []   # list of debug entries per message turn
+    st.session_state.debug_logs = []
 
 # -----------------------------------------------------------------------------
 # SIDEBAR
 # -----------------------------------------------------------------------------
 with st.sidebar:
-    st.title("🔒 Private AI Chat")
+    st.title("🔒 Lokesh's Private AI Chat")
     st.caption("Powered by Gemini + Zscaler AI Guard")
     st.divider()
 
@@ -179,15 +179,15 @@ with st.sidebar:
 def inspect_with_ai_guard(content: str, direction: str, api_key: str, email: str) -> tuple:
     """
     Call Zscaler AI Guard Option 2 - resolve-and-execute-policy.
-    direction: 'outbound' for user prompt, 'inbound' for LLM response.
-    Returns (result_dict, debug_dict).
-    Fails open on any network/API error.
+    direction: 'OUT' for user prompt -> LLM
+               'IN'  for LLM response -> user
+    Returns (result_dict, debug_dict). Fails open on any error.
     """
     debug = {
-        "direction":   direction,
-        "http_status": None,
+        "direction":    direction,
+        "http_status":  None,
         "raw_response": None,
-        "error":       None,
+        "error":        None,
     }
 
     if not api_key:
@@ -204,7 +204,7 @@ def inspect_with_ai_guard(content: str, direction: str, api_key: str, email: str
         "Content-Type": "application/json",
     }
     payload = {
-        "direction": direction,
+        "direction": direction,   # "OUT" or "IN"
         "content":   content,
         "userEmail": email,
     }
@@ -241,12 +241,12 @@ def inspect_with_ai_guard(content: str, direction: str, api_key: str, email: str
 # HELPER: Render debug panel for one AI Guard call
 # -----------------------------------------------------------------------------
 def render_debug_panel(debug: dict):
-    direction  = debug.get("direction", "unknown")
-    status     = debug.get("http_status")
-    raw        = debug.get("raw_response")
-    err        = debug.get("error")
+    direction = debug.get("direction", "unknown")
+    status    = debug.get("http_status")
+    raw       = debug.get("raw_response")
+    err       = debug.get("error")
 
-    label = "Prompt (outbound)" if direction == "outbound" else "Response (inbound)"
+    label = "Prompt (OUT)" if direction == "OUT" else "Response (IN)"
 
     if status == 200:
         status_icon = "✅"
@@ -255,7 +255,7 @@ def render_debug_panel(debug: dict):
     else:
         status_icon = "❌"
 
-    with st.expander(f"🔬 AI Guard Debug — {label}  {status_icon}", expanded=True):
+    with st.expander(f"🔬 AI Guard Debug -- {label}  {status_icon}", expanded=True):
         col1, col2 = st.columns(2)
         with col1:
             st.markdown("**Direction**")
@@ -278,11 +278,11 @@ def render_debug_panel(debug: dict):
         if isinstance(raw, dict):
             action = raw.get("action", "UNKNOWN").upper()
             if action == "ALLOW":
-                st.success(f"Verdict: {action} - Traffic passed AI Guard")
+                st.success(f"Verdict: {action} -- Traffic passed AI Guard")
             elif action == "BLOCK":
-                st.error(f"Verdict: {action} - Traffic blocked by AI Guard")
+                st.error(f"Verdict: {action} -- Traffic blocked by AI Guard")
             elif action == "CAUTION":
-                st.warning(f"Verdict: {action} - Traffic flagged by AI Guard")
+                st.warning(f"Verdict: {action} -- Traffic flagged by AI Guard")
             else:
                 st.info(f"Verdict: {action}")
 
@@ -339,7 +339,7 @@ def render_guard_result(guard_result: dict, label: str):
 # -----------------------------------------------------------------------------
 # MAIN CHAT UI
 # -----------------------------------------------------------------------------
-st.title("🔒 Private AI Chat")
+st.title("🔒 Lokesh's Private AI Chat")
 st.caption(
     "Your conversations are protected by **Zscaler AI Guard** "
     "-- every prompt and response is inspected before delivery."
@@ -383,11 +383,11 @@ if user_input:
             st.caption("📎 " + " · ".join(attached_names))
         st.markdown(user_input)
 
-    # STEP 1: Inspect PROMPT with AI Guard (outbound)
+    # STEP 1: Inspect PROMPT with AI Guard -- direction: OUT
     with st.spinner("🛡️ Zscaler AI Guard inspecting your prompt..."):
         guard_prompt_result, debug_prompt = inspect_with_ai_guard(
             content=user_input,
-            direction="outbound",
+            direction="OUT",
             api_key=zscaler_key,
             email=user_email,
         )
@@ -410,10 +410,10 @@ if user_input:
         "message": "Not called",
     }
     debug_response = {
-        "direction": "inbound",
-        "http_status": None,
+        "direction":    "IN",
+        "http_status":  None,
         "raw_response": None,
-        "error": "Skipped - LLM not called",
+        "error":        "Skipped - LLM not called",
     }
 
     if should_call_llm:
@@ -438,12 +438,12 @@ if user_input:
             st.error(f"Gemini API error: {e}")
             llm_response_text = None
 
-        # STEP 4: Inspect RESPONSE with AI Guard (inbound)
+        # STEP 4: Inspect RESPONSE with AI Guard -- direction: IN
         if llm_response_text:
             with st.spinner("🛡️ Zscaler AI Guard inspecting the response..."):
                 guard_response_result, debug_response = inspect_with_ai_guard(
                     content=llm_response_text,
-                    direction="inbound",
+                    direction="IN",
                     api_key=zscaler_key,
                     email=user_email,
                 )
