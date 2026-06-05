@@ -1,9 +1,11 @@
 # =============================================================================
-# Private Chat App — Google Gemini 2.5 Flash + Zscaler AI Guard (DAS/API Mode)
+# Private Chat App -- Google Gemini 2.5 Flash + Zscaler AI Guard (DAS/API Mode)
 # Option 2: resolve-and-execute-policy (no Policy ID required)
 # =============================================================================
-# Requirements:
-#   pip install streamlit google-generativeai requests python-dotenv
+# Requirements (requirements.txt):
+#   streamlit
+#   google-generativeai
+#   requests
 # =============================================================================
 
 import os
@@ -11,11 +13,18 @@ import base64
 import mimetypes
 import requests
 import streamlit as st
-from dotenv import load_dotenv
 import google.generativeai as genai
 
-load_dotenv()
+# -----------------------------------------------------------------------------
+# CONSTANTS
+# -----------------------------------------------------------------------------
+ZSCALER_ENDPOINT = "https://api.zseclipse.net/v1/detection/resolve-and-execute-policy"
+GEMINI_MODEL     = "gemini-2.5-flash"
+DEFAULT_USER     = "lokeshzsblr@gmail.com"
 
+# -----------------------------------------------------------------------------
+# PAGE CONFIG
+# -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="Private AI Chat",
     page_icon="🔒",
@@ -23,6 +32,9 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# -----------------------------------------------------------------------------
+# CUSTOM CSS
+# -----------------------------------------------------------------------------
 st.markdown("""
 <style>
     .block-banner {
@@ -57,13 +69,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# CONSTANTS
-# -----------------------------------------------------------------------------
-ZSCALER_ENDPOINT = "https://api.zseclipse.net/v1/detection/resolve-and-execute-policy"
-GEMINI_MODEL     = "gemini-2.5-flash"
-DEFAULT_USER     = "lkrishnamoorthy@zscaler.com"
-
-# -----------------------------------------------------------------------------
 # SESSION STATE INIT
 # -----------------------------------------------------------------------------
 if "messages" not in st.session_state:
@@ -79,35 +84,38 @@ with st.sidebar:
     st.caption("Powered by Gemini + Zscaler AI Guard")
     st.divider()
 
+    # Model display (read-only)
     st.markdown('<p class="sidebar-label">🤖 LLM Model</p>', unsafe_allow_html=True)
     st.info(f"**{GEMINI_MODEL}**", icon="🧠")
 
     st.divider()
 
+    # API Keys -- pulled from st.secrets first, sidebar input as fallback
     st.markdown("### 🔑 API Keys")
     gemini_key = st.text_input(
         "Google Gemini API Key",
-        value=os.getenv("GEMINI_API_KEY", ""),
+        value=st.secrets.get("GEMINI_API_KEY", ""),
         type="password",
         placeholder="AIza...",
         help="Get your key from https://aistudio.google.com/",
     )
     zscaler_key = st.text_input(
         "Zscaler AI Guard API Key",
-        value=os.getenv("ZSCALER_API_KEY", ""),
+        value=st.secrets.get("ZSCALER_API_KEY", ""),
         type="password",
         placeholder="Bearer token from ZIA console",
         help="ZIA Admin > AI Security > AI Guard > Application Key",
     )
     user_email = st.text_input(
         "User Email (for AI Guard policy resolution)",
-        value=DEFAULT_USER,
+        value=st.secrets.get("USER_EMAIL", DEFAULT_USER),
         placeholder="you@example.com",
         help="AI Guard uses this to resolve which policy applies to you.",
     )
 
     st.divider()
 
+    # Guard settings
     st.markdown("### ⚙️ Guard Settings")
     caution_action = st.radio(
         "CAUTION action",
@@ -118,6 +126,7 @@ with st.sidebar:
 
     st.divider()
 
+    # File uploader -- all formats
     st.markdown("### 📎 Attach Files / Images")
     uploaded_files = st.file_uploader(
         "Upload any file(s)",
@@ -130,15 +139,17 @@ with st.sidebar:
     if uploaded_files:
         st.success(f"{len(uploaded_files)} file(s) ready to send")
         for f in uploaded_files:
-            st.caption(f"📄 {f.name}  `{round(f.size/1024, 1)} KB`")
+            st.caption(f"📄 {f.name}  `{round(f.size / 1024, 1)} KB`")
 
     st.divider()
 
+    # Clear chat
     if st.button("🗑️ Clear Chat", use_container_width=True, type="secondary"):
         st.session_state.messages = []
         st.session_state.uploaded_file_data = []
         st.rerun()
 
+    # Endpoint info
     st.markdown('<p class="sidebar-label">🛡️ AI Guard Endpoint</p>', unsafe_allow_html=True)
     st.code("resolve-and-execute-policy", language=None)
     st.caption("Option 2 - No Policy ID required")
@@ -150,8 +161,7 @@ with st.sidebar:
 def inspect_with_ai_guard(content: str, direction: str, api_key: str, email: str) -> dict:
     """
     Call Zscaler AI Guard Option 2 - resolve-and-execute-policy.
-    direction: "outbound" for prompt, "inbound" for LLM response.
-    Returns dict with action (ALLOW/BLOCK/CAUTION), message, triggeringDetectors.
+    direction: 'outbound' for user prompt, 'inbound' for LLM response.
     Fails open on any network/API error.
     """
     if not api_key:
@@ -187,9 +197,9 @@ def inspect_with_ai_guard(content: str, direction: str, api_key: str, email: str
 # -----------------------------------------------------------------------------
 def build_gemini_parts(prompt_text: str, files: list) -> list:
     """
-    Build the content parts list for Gemini multimodal input.
-    Images, PDFs, audio, video, and text files are sent as inline_data.
-    All other file types are decoded as UTF-8 text and sent inline.
+    Build multimodal content parts for Gemini.
+    Images, PDFs, audio, video, plain text -> inline_data.
+    Everything else -> decoded as UTF-8 text.
     """
     parts = []
 
@@ -206,7 +216,7 @@ def build_gemini_parts(prompt_text: str, files: list) -> list:
                 text_content = file_bytes.decode("utf-8", errors="replace")
                 parts.append({"text": f"[Attached file: {f.name}]\n{text_content}"})
             except Exception:
-                parts.append({"text": f"[Attached file: {f.name} - binary content, {len(file_bytes)} bytes]"})
+                parts.append({"text": f"[Attached file: {f.name} - binary, {len(file_bytes)} bytes]"})
 
     parts.append({"text": prompt_text})
     return parts
