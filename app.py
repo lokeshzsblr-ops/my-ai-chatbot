@@ -8,11 +8,14 @@ st.title("🛡️ Lokesh's AI Assistant (Zscaler DAS/API Mode)")
 
 # Securely fetch API Keys from Streamlit secrets
 try:
-    zscaler_api_key = st.secrets["ZSCALER_API_KEY"]   # AI Guard Token
-    zscaler_app_id  = st.secrets["ZSCALER_APP_ID"]    # Application ID
+    zscaler_api_key = st.secrets["ZSCALER_API_KEY"]
 except KeyError as e:
     st.error(f"Missing secret: {e}. Please add it to your Streamlit secrets.")
     st.stop()
+
+# ZSCALER_APP_ID is the Application ID from the Zscaler portal.
+# If not set separately, it falls back to the same API key.
+zscaler_app_id = st.secrets.get("ZSCALER_APP_ID", zscaler_api_key)
 
 
 # 2. Sidebar for settings
@@ -48,6 +51,7 @@ if prompt := st.chat_input("Type your message here..."):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
+        zscaler_response = {}
         try:
             with st.spinner("🛡️ Sending request through Zscaler AI Guard..."):
 
@@ -56,16 +60,14 @@ if prompt := st.chat_input("Type your message here..."):
 
                 # TWO credentials are required:
                 # Authorization header → your AI Guard Bearer Token
-                # X-ApiKey header      → your Application ID
+                # X-ApiKey header      → your Application ID (falls back to API key if not set)
                 headers = {
                     "Content-Type":  "application/json",
                     "Authorization": f"Bearer {zscaler_api_key}",
                     "X-ApiKey":      zscaler_app_id
                 }
 
-                # --- Step 2: Build the request body exactly as the documentation specifies ---
-                # provider and model are required top-level fields.
-                # contents uses the native Gemini format with the full chat history.
+                # --- Step 2: Build the request body ---
                 request_body = {
                     "provider": "google",
                     "model":    model_name,
@@ -89,7 +91,7 @@ if prompt := st.chat_input("Type your message here..."):
                     st.json(zscaler_response)
                     st.stop()
 
-                # --- Step 5: Extract the Gemini response from Zscaler's reply ---
+                # --- Step 5: Extract the Gemini response ---
                 # Zscaler calls Google on our behalf and returns the response directly.
                 assistant_response = zscaler_response['candidates'][0]['content']['parts'][0]['text']
 
