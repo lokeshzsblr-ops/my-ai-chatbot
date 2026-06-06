@@ -326,7 +326,7 @@ for msg in st.session_state.messages:
 # -----------------------------------------------------------------------------
 # CHAT INPUT
 # -----------------------------------------------------------------------------
-user_input = st.chat_input("Type your message here...")
+user_input = st.chat_input("What's on your mind......")
 
 if user_input:
 
