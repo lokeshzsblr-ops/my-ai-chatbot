@@ -34,7 +34,7 @@ def get_secret(key: str, default: str = "") -> str:
 # PAGE CONFIG
 # -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Private AI Chat",
+    page_title="Lokesh's Lokesh's Private AI Chat",
     page_icon="🔒",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -88,7 +88,7 @@ if "debug_logs" not in st.session_state:
 # SIDEBAR
 # -----------------------------------------------------------------------------
 with st.sidebar:
-    st.title("🔒 Private AI Chat")
+    st.title("🔒 Lokesh's Private AI Chat")
     st.caption("Powered by Gemini + Zscaler AI Guard")
     st.divider()
 
@@ -301,7 +301,7 @@ def render_guard_result(guard_result: dict, label: str):
 # -----------------------------------------------------------------------------
 # MAIN CHAT UI
 # -----------------------------------------------------------------------------
-st.title("🔒 Private AI Chat")
+st.title("🔒 Lokesh's Private AI Chat")
 st.caption(
     "Your conversations are protected by **Zscaler AI Guard** "
     "-- every prompt and response is inspected before delivery."
