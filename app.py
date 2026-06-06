@@ -8,7 +8,6 @@
 #   requests
 # =============================================================================
 
-import os
 import base64
 import mimetypes
 import requests
@@ -26,7 +25,6 @@ DEFAULT_USER     = "lkrishnamoorthy@zscaler.com"
 # HELPER: Safe secrets reader
 # -----------------------------------------------------------------------------
 def get_secret(key: str, default: str = "") -> str:
-    """Read from st.secrets safely -- returns default if key is missing."""
     try:
         return st.secrets[key]
     except Exception:
@@ -75,14 +73,6 @@ st.markdown("""
         color: #aaaaaa;
         margin-bottom: 2px;
     }
-    .debug-box {
-        background-color: #1e1e2e;
-        border: 1px solid #444466;
-        border-radius: 8px;
-        padding: 10px 14px;
-        font-size: 0.78em;
-        margin-bottom: 6px;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -91,8 +81,6 @@ st.markdown("""
 # -----------------------------------------------------------------------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "uploaded_file_data" not in st.session_state:
-    st.session_state.uploaded_file_data = []
 if "debug_logs" not in st.session_state:
     st.session_state.debug_logs = []
 
@@ -104,80 +92,57 @@ with st.sidebar:
     st.caption("Powered by Gemini + Zscaler AI Guard")
     st.divider()
 
-    # Model display (read-only)
     st.markdown('<p class="sidebar-label">🤖 LLM Model</p>', unsafe_allow_html=True)
     st.info(f"**{GEMINI_MODEL}**", icon="🧠")
-
     st.divider()
 
-    # API Keys -- safe fallback from secrets or blank
     st.markdown("### 🔑 API Keys")
     gemini_key = st.text_input(
         "Google Gemini API Key",
         value=get_secret("GEMINI_API_KEY"),
         type="password",
         placeholder="AIza...",
-        help="Get your key from https://aistudio.google.com/",
     )
     zscaler_key = st.text_input(
         "Zscaler AI Guard API Key",
         value=get_secret("ZSCALER_API_KEY"),
         type="password",
         placeholder="Bearer token from ZIA console",
-        help="ZIA Admin > AI Security > AI Guard > Application Key",
     )
     user_email = st.text_input(
         "User Email (optional)",
         value=get_secret("USER_EMAIL", DEFAULT_USER),
         placeholder="you@example.com",
-        help="Optional. Used by AI Guard for user-scoped policies.",
     )
-
     st.divider()
 
-    # Guard settings
     st.markdown("### ⚙️ Guard Settings")
     caution_action = st.radio(
         "CAUTION action",
         options=["Allow with warning", "Block"],
         index=0,
-        help="What to do when AI Guard returns CAUTION on a prompt or response.",
     )
-
-    # Debug mode toggle
-    debug_mode = st.toggle(
-        "🔬 Debug Mode",
-        value=False,
-        help="Show raw AI Guard API responses in the chat for every message turn.",
-    )
-
+    debug_mode = st.toggle("🔬 Debug Mode", value=False)
     st.divider()
 
-    # File uploader -- all formats
     st.markdown("### 📎 Attach Files / Images")
     uploaded_files = st.file_uploader(
         "Upload any file(s)",
         accept_multiple_files=True,
         type=None,
-        help="Attach files to include in your next message to Gemini.",
         label_visibility="collapsed",
     )
-
     if uploaded_files:
         st.success(f"{len(uploaded_files)} file(s) ready to send")
         for f in uploaded_files:
             st.caption(f"📄 {f.name}  `{round(f.size / 1024, 1)} KB`")
 
     st.divider()
-
-    # Clear chat
     if st.button("🗑️ Clear Chat", use_container_width=True, type="secondary"):
         st.session_state.messages = []
-        st.session_state.uploaded_file_data = []
         st.session_state.debug_logs = []
         st.rerun()
 
-    # Endpoint info
     st.markdown('<p class="sidebar-label">🛡️ AI Guard Endpoint</p>', unsafe_allow_html=True)
     st.code("resolve-and-execute-policy", language=None)
     st.caption("Option 2 - No Policy ID required")
@@ -185,15 +150,10 @@ with st.sidebar:
 
 # -----------------------------------------------------------------------------
 # HELPER: Zscaler AI Guard Inspection
+# direction must be exactly "OUT" or "IN" -- these are the only values the API accepts
 # -----------------------------------------------------------------------------
 def inspect_with_ai_guard(content: str, direction: str, api_key: str, email: str) -> tuple:
-    """
-    Call Zscaler AI Guard Option 2 - resolve-and-execute-policy.
-    direction: 'outbound' for user prompt -> LLM
-               'inbound'  for LLM response -> user
-    userEmail is optional -- only included if provided.
-    Returns (result_dict, debug_dict). Fails open on any error.
-    """
+    # direction: "OUT" = prompt going to LLM | "IN" = response coming back to user
     debug = {
         "direction":    direction,
         "http_status":  None,
@@ -202,22 +162,15 @@ def inspect_with_ai_guard(content: str, direction: str, api_key: str, email: str
     }
 
     if not api_key:
-        result = {
-            "action": "ALLOW",
-            "message": "AI Guard not configured (no API key)",
-            "triggeringDetectors": [],
-        }
         debug["error"] = "No API key provided"
-        return result, debug
+        return {"action": "ALLOW", "message": "AI Guard not configured", "triggeringDetectors": []}, debug
 
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
+        "Content-Type":  "application/json",
     }
-
-    # Only include userEmail if provided
     payload = {
-        "direction": direction,
+        "direction": direction,   # MUST be "OUT" or "IN" -- API rejects anything else
         "content":   content,
     }
     if email and email.strip():
@@ -231,41 +184,33 @@ def inspect_with_ai_guard(content: str, direction: str, api_key: str, email: str
         except Exception:
             debug["raw_response"] = resp.text[:1000]
 
-        # Handle 404 explicitly
         if resp.status_code == 404:
             debug["error"] = (
                 "404 - No AI Guard policy found. "
                 "Ensure your API key is linked to an AI Guard Application in "
                 "ZIA Admin > AI Security > AI Guard > Applications."
             )
-            return {
-                "action":  "ALLOW",
-                "message": "No AI Guard policy found for this API key (fail-open)",
-                "triggeringDetectors": [],
-            }, debug
+            return {"action": "ALLOW", "message": "No policy found (fail-open)", "triggeringDetectors": []}, debug
 
         resp.raise_for_status()
         return resp.json(), debug
 
     except requests.exceptions.Timeout:
         debug["error"] = "Request timed out after 30s"
-        return {"action": "ALLOW", "error": "AI Guard timeout - proceeding (fail-open)"}, debug
-
+        return {"action": "ALLOW", "error": "Timeout (fail-open)"}, debug
     except requests.exceptions.HTTPError as e:
         debug["error"] = f"HTTP error: {e}"
-        return {"action": "ALLOW", "error": f"AI Guard HTTP error: {e}"}, debug
-
+        return {"action": "ALLOW", "error": f"HTTP error: {e}"}, debug
     except requests.exceptions.ConnectionError as e:
         debug["error"] = f"Connection error: {e}"
-        return {"action": "ALLOW", "error": f"AI Guard connection error: {e}"}, debug
-
+        return {"action": "ALLOW", "error": f"Connection error: {e}"}, debug
     except Exception as e:
         debug["error"] = f"Unexpected error: {e}"
-        return {"action": "ALLOW", "error": f"AI Guard error: {e}"}, debug
+        return {"action": "ALLOW", "error": f"Error: {e}"}, debug
 
 
 # -----------------------------------------------------------------------------
-# HELPER: Render debug panel for one AI Guard call
+# HELPER: Render debug panel
 # -----------------------------------------------------------------------------
 def render_debug_panel(debug: dict):
     direction = debug.get("direction", "unknown")
@@ -273,14 +218,9 @@ def render_debug_panel(debug: dict):
     raw       = debug.get("raw_response")
     err       = debug.get("error")
 
-    label = "Prompt (outbound)" if direction == "outbound" else "Response (inbound)"
-
-    if status == 200:
-        status_icon = "✅"
-    elif status is None:
-        status_icon = "⚪"
-    else:
-        status_icon = "❌"
+    # Labels match the API enum values exactly
+    label       = "Prompt (OUT)" if direction == "OUT" else "Response (IN)"
+    status_icon = "✅" if status == 200 else ("⚪" if status is None else "❌")
 
     with st.expander(f"🔬 AI Guard Debug -- {label}  {status_icon}", expanded=True):
         col1, col2 = st.columns(2)
@@ -301,7 +241,6 @@ def render_debug_panel(debug: dict):
         if err:
             st.warning(f"ℹ️ {err}")
 
-        # Verdict summary
         if isinstance(raw, dict):
             action = raw.get("action", "UNKNOWN").upper()
             if action == "ALLOW":
@@ -317,7 +256,7 @@ def render_debug_panel(debug: dict):
 
 
 # -----------------------------------------------------------------------------
-# HELPER: Build Gemini parts list (text + files)
+# HELPER: Build Gemini parts
 # -----------------------------------------------------------------------------
 def build_gemini_parts(prompt_text: str, files: list) -> list:
     parts = []
@@ -325,13 +264,11 @@ def build_gemini_parts(prompt_text: str, files: list) -> list:
         file_bytes = f.read()
         mime_type  = f.type or (mimetypes.guess_type(f.name)[0] or "application/octet-stream")
         b64_data   = base64.standard_b64encode(file_bytes).decode("utf-8")
-        inline_mime_prefixes = ("image/", "application/pdf", "text/", "audio/", "video/")
-        if any(mime_type.startswith(p) for p in inline_mime_prefixes):
+        if any(mime_type.startswith(p) for p in ("image/", "application/pdf", "text/", "audio/", "video/")):
             parts.append({"inline_data": {"mime_type": mime_type, "data": b64_data}})
         else:
             try:
-                text_content = file_bytes.decode("utf-8", errors="replace")
-                parts.append({"text": f"[Attached file: {f.name}]\n{text_content}"})
+                parts.append({"text": f"[Attached file: {f.name}]\n{file_bytes.decode('utf-8', errors='replace')}"})
             except Exception:
                 parts.append({"text": f"[Attached file: {f.name} - binary, {len(file_bytes)} bytes]"})
     parts.append({"text": prompt_text})
@@ -348,19 +285,15 @@ def render_guard_result(guard_result: dict, label: str):
     err       = guard_result.get("error", "")
 
     if action == "BLOCK":
-        det_str = ", ".join(detectors) if detectors else "Policy violation"
+        det_str = ", ".join(detectors) if detectors else msg or "Policy violation"
         st.markdown(
             f'<div class="block-banner">🚫 <b>Blocked by Zscaler AI Guard</b> [{label}]<br>'
-            f'Reason: {det_str or msg}</div>',
-            unsafe_allow_html=True,
-        )
+            f'Reason: {det_str}</div>', unsafe_allow_html=True)
     elif action == "CAUTION":
         det_str = ", ".join(detectors) if detectors else msg or "Flagged content"
         st.markdown(
             f'<div class="caution-banner">⚠️ <b>AI Guard Caution</b> [{label}]<br>'
-            f'Detected: {det_str}</div>',
-            unsafe_allow_html=True,
-        )
+            f'Detected: {det_str}</div>', unsafe_allow_html=True)
     elif err:
         st.caption(f"ℹ️ AI Guard: {err}")
 
@@ -375,7 +308,7 @@ st.caption(
 )
 
 # Render chat history
-for idx, msg in enumerate(st.session_state.messages):
+for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         if msg.get("files"):
             st.caption("📎 " + " · ".join(msg["files"]))
@@ -386,12 +319,9 @@ for idx, msg in enumerate(st.session_state.messages):
         st.markdown(msg["content"])
         if msg["role"] == "assistant" and msg.get("guard_response", {}).get("action") == "ALLOW":
             st.markdown('<span class="allow-badge">✅ Cleared by AI Guard</span>', unsafe_allow_html=True)
-
-        # Show stored debug panels if debug mode is on
         if debug_mode and msg.get("debug_entries"):
             for dbg in msg["debug_entries"]:
                 render_debug_panel(dbg)
-
 
 # -----------------------------------------------------------------------------
 # CHAT INPUT
@@ -404,7 +334,7 @@ if user_input:
         st.error("Please enter your Google Gemini API Key in the sidebar.")
         st.stop()
 
-    attached_names = [f.name for f in uploaded_files] if uploaded_files else []
+    attached_names  = [f.name for f in uploaded_files] if uploaded_files else []
     turn_debug_logs = []
 
     with st.chat_message("user"):
@@ -412,11 +342,11 @@ if user_input:
             st.caption("📎 " + " · ".join(attached_names))
         st.markdown(user_input)
 
-    # STEP 1: Inspect PROMPT with AI Guard (outbound)
+    # STEP 1: Inspect PROMPT -- direction "OUT" (user -> LLM)
     with st.spinner("🛡️ Zscaler AI Guard inspecting your prompt..."):
         guard_prompt_result, debug_prompt = inspect_with_ai_guard(
             content=user_input,
-            direction="outbound",
+            direction="OUT",
             api_key=zscaler_key,
             email=user_email,
         )
@@ -424,7 +354,7 @@ if user_input:
 
     prompt_action = guard_prompt_result.get("action", "ALLOW").upper()
 
-    # STEP 2: Decide whether to call the LLM
+    # STEP 2: Decide whether to call Gemini
     if prompt_action == "ALLOW":
         should_call_llm = True
     elif prompt_action == "CAUTION":
@@ -432,18 +362,9 @@ if user_input:
     else:
         should_call_llm = False
 
-    llm_response_text = None
-    guard_response_result = {
-        "action": "ALLOW",
-        "triggeringDetectors": [],
-        "message": "Not called",
-    }
-    debug_response = {
-        "direction":    "inbound",
-        "http_status":  None,
-        "raw_response": None,
-        "error":        "Skipped - LLM not called",
-    }
+    llm_response_text     = None
+    guard_response_result = {"action": "ALLOW", "triggeringDetectors": [], "message": "Not called"}
+    debug_response        = {"direction": "IN", "http_status": None, "raw_response": None, "error": "Skipped - LLM not called"}
 
     if should_call_llm:
         # STEP 3: Call Gemini
@@ -457,51 +378,48 @@ if user_input:
                 gemini_history.append({"role": role, "parts": [{"text": m["content"]}]})
 
             current_parts = build_gemini_parts(user_input, uploaded_files or [])
-            chat = model.start_chat(history=gemini_history)
+            chat          = model.start_chat(history=gemini_history)
 
             with st.spinner("🤖 Gemini is thinking..."):
-                response = chat.send_message(current_parts)
+                response          = chat.send_message(current_parts)
                 llm_response_text = response.text
 
         except Exception as e:
             st.error(f"Gemini API error: {e}")
             llm_response_text = None
 
-        # STEP 4: Inspect RESPONSE with AI Guard (inbound)
+        # STEP 4: Inspect RESPONSE -- direction "IN" (LLM -> user)
         if llm_response_text:
             with st.spinner("🛡️ Zscaler AI Guard inspecting the response..."):
                 guard_response_result, debug_response = inspect_with_ai_guard(
                     content=llm_response_text,
-                    direction="inbound",
+                    direction="IN",
                     api_key=zscaler_key,
                     email=user_email,
                 )
             turn_debug_logs.append(debug_response)
 
-    # STEP 5: Determine what to display
+    # STEP 5: Determine display content
     response_action = guard_response_result.get("action", "ALLOW").upper()
 
     if not should_call_llm:
         detectors = guard_prompt_result.get("triggeringDetectors", [])
         det_str   = ", ".join(detectors) if detectors else guard_prompt_result.get("message", "Policy violation")
-        if prompt_action == "CAUTION" and caution_action == "Block":
-            display_content = f"Your message was stopped due to a caution flag.\n\n**Detected:** {det_str}"
-        else:
-            display_content = f"Your message was blocked before reaching the AI.\n\n**Reason:** {det_str}"
-
+        display_content = (
+            f"Your message was stopped due to a caution flag.\n\n**Detected:** {det_str}"
+            if prompt_action == "CAUTION" and caution_action == "Block"
+            else f"Your message was blocked before reaching the AI.\n\n**Reason:** {det_str}"
+        )
     elif llm_response_text is None:
         display_content = "Could not get a response from Gemini. Please check your API key."
-
     elif response_action == "BLOCK":
         detectors = guard_response_result.get("triggeringDetectors", [])
         det_str   = ", ".join(detectors) if detectors else guard_response_result.get("message", "Policy violation")
         display_content = f"The AI response was blocked by Zscaler AI Guard.\n\n**Reason:** {det_str}"
-
     elif response_action == "CAUTION" and caution_action == "Block":
         detectors = guard_response_result.get("triggeringDetectors", [])
         det_str   = ", ".join(detectors) if detectors else guard_response_result.get("message", "Flagged content")
         display_content = f"The AI response was held due to a caution flag.\n\n**Detected:** {det_str}"
-
     else:
         display_content = llm_response_text
 
@@ -519,25 +437,18 @@ if user_input:
         if response_action == "ALLOW" and llm_response_text:
             st.markdown('<span class="allow-badge">✅ Cleared by AI Guard</span>', unsafe_allow_html=True)
 
-        # Show live debug panels if debug mode is on
         if debug_mode:
             for dbg in turn_debug_logs:
                 render_debug_panel(dbg)
 
-    # STEP 7: Save to session state
+    # STEP 7: Persist to session state
     st.session_state.messages.append({
-        "role":           "user",
-        "content":        user_input,
-        "files":          attached_names,
-        "guard_prompt":   guard_prompt_result,
-        "guard_response": None,
-        "debug_entries":  [],
+        "role": "user", "content": user_input, "files": attached_names,
+        "guard_prompt": guard_prompt_result, "guard_response": None, "debug_entries": [],
     })
     st.session_state.messages.append({
-        "role":           "assistant",
-        "content":        display_content,
-        "files":          [],
-        "guard_prompt":   None,
+        "role": "assistant", "content": display_content, "files": [],
+        "guard_prompt": None,
         "guard_response": guard_response_result if should_call_llm else None,
-        "debug_entries":  turn_debug_logs,
+        "debug_entries": turn_debug_logs,
     })
