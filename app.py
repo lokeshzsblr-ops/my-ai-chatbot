@@ -31,10 +31,17 @@ def get_secret(key: str, default: str = "") -> str:
         return default
 
 # -----------------------------------------------------------------------------
+# Load API keys from Streamlit secrets only
+# -----------------------------------------------------------------------------
+gemini_key  = get_secret("GEMINI_API_KEY")
+zscaler_key = get_secret("ZSCALER_API_KEY")
+user_email  = get_secret("USER_EMAIL", DEFAULT_USER)
+
+# -----------------------------------------------------------------------------
 # PAGE CONFIG
 # -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Lokesh's Lokesh's Private AI Chat",
+    page_title="Lokesh's Private AI Chat",
     page_icon="🔒",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -73,6 +80,16 @@ st.markdown("""
         color: #aaaaaa;
         margin-bottom: 2px;
     }
+    .key-status-ok {
+        font-size: 0.82em;
+        color: #00cc88;
+        font-weight: 600;
+    }
+    .key-status-missing {
+        font-size: 0.82em;
+        color: #ff4b4b;
+        font-weight: 600;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -92,30 +109,31 @@ with st.sidebar:
     st.caption("Powered by Gemini + Zscaler AI Guard")
     st.divider()
 
+    # Model display
     st.markdown('<p class="sidebar-label">🤖 LLM Model</p>', unsafe_allow_html=True)
     st.info(f"**{GEMINI_MODEL}**", icon="🧠")
     st.divider()
 
-    st.markdown("### 🔑 API Keys")
-    gemini_key = st.text_input(
-        "Google Gemini API Key",
-        value=get_secret("GEMINI_API_KEY"),
-        type="password",
-        placeholder="AIza...",
-    )
-    zscaler_key = st.text_input(
-        "Zscaler AI Guard API Key",
-        value=get_secret("ZSCALER_API_KEY"),
-        type="password",
-        placeholder="Bearer token from ZIA console",
-    )
-    user_email = st.text_input(
-        "User Email (optional)",
-        value=get_secret("USER_EMAIL", DEFAULT_USER),
-        placeholder="you@example.com",
-    )
+    # API Key status indicators (no input fields -- keys come from secrets only)
+    st.markdown("### 🔑 API Key Status")
+    if gemini_key:
+        st.markdown('<p class="key-status-ok">✅ Gemini API Key loaded</p>', unsafe_allow_html=True)
+    else:
+        st.markdown('<p class="key-status-missing">❌ Gemini API Key missing<br><small>Add GEMINI_API_KEY to Streamlit secrets</small></p>', unsafe_allow_html=True)
+
+    if zscaler_key:
+        st.markdown('<p class="key-status-ok">✅ Zscaler AI Guard Key loaded</p>', unsafe_allow_html=True)
+    else:
+        st.markdown('<p class="key-status-missing">❌ Zscaler AI Guard Key missing<br><small>Add ZSCALER_API_KEY to Streamlit secrets</small></p>', unsafe_allow_html=True)
+
+    if user_email:
+        st.markdown(f'<p class="key-status-ok">✅ User Email: {user_email}</p>', unsafe_allow_html=True)
+    else:
+        st.markdown('<p class="key-status-missing">⚠️ USER_EMAIL not set in secrets</p>', unsafe_allow_html=True)
+
     st.divider()
 
+    # Guard settings
     st.markdown("### ⚙️ Guard Settings")
     caution_action = st.radio(
         "CAUTION action",
@@ -125,6 +143,7 @@ with st.sidebar:
     debug_mode = st.toggle("🔬 Debug Mode", value=False)
     st.divider()
 
+    # File uploader
     st.markdown("### 📎 Attach Files / Images")
     uploaded_files = st.file_uploader(
         "Upload any file(s)",
@@ -150,10 +169,12 @@ with st.sidebar:
 
 # -----------------------------------------------------------------------------
 # HELPER: Zscaler AI Guard Inspection
-# direction must be exactly "OUT" or "IN" -- these are the only values the API accepts
 # -----------------------------------------------------------------------------
-def inspect_with_ai_guard(content: str, direction: str, api_key: str, email: str) -> tuple:
-    # direction: "OUT" = prompt going to LLM | "IN" = response coming back to user
+def inspect_with_ai_guard(content: str, direction: str) -> tuple:
+    """
+    direction: "OUT" = prompt going to LLM
+               "IN"  = response coming back to user
+    """
     debug = {
         "direction":    direction,
         "http_status":  None,
@@ -161,20 +182,20 @@ def inspect_with_ai_guard(content: str, direction: str, api_key: str, email: str
         "error":        None,
     }
 
-    if not api_key:
-        debug["error"] = "No API key provided"
+    if not zscaler_key:
+        debug["error"] = "No Zscaler API key in secrets"
         return {"action": "ALLOW", "message": "AI Guard not configured", "triggeringDetectors": []}, debug
 
     headers = {
-        "Authorization": f"Bearer {api_key}",
+        "Authorization": f"Bearer {zscaler_key}",
         "Content-Type":  "application/json",
     }
     payload = {
-        "direction": direction,   # MUST be "OUT" or "IN" -- API rejects anything else
+        "direction": direction,
         "content":   content,
     }
-    if email and email.strip():
-        payload["userEmail"] = email.strip()
+    if user_email and user_email.strip():
+        payload["userEmail"] = user_email.strip()
 
     try:
         resp = requests.post(ZSCALER_ENDPOINT, json=payload, headers=headers, timeout=30)
@@ -213,12 +234,10 @@ def inspect_with_ai_guard(content: str, direction: str, api_key: str, email: str
 # HELPER: Render debug panel
 # -----------------------------------------------------------------------------
 def render_debug_panel(debug: dict):
-    direction = debug.get("direction", "unknown")
-    status    = debug.get("http_status")
-    raw       = debug.get("raw_response")
-    err       = debug.get("error")
-
-    # Labels match the API enum values exactly
+    direction   = debug.get("direction", "unknown")
+    status      = debug.get("http_status")
+    raw         = debug.get("raw_response")
+    err         = debug.get("error")
     label       = "Prompt (OUT)" if direction == "OUT" else "Response (IN)"
     status_icon = "✅" if status == 200 else ("⚪" if status is None else "❌")
 
@@ -301,6 +320,20 @@ def render_guard_result(guard_result: dict, label: str):
 # -----------------------------------------------------------------------------
 # MAIN CHAT UI
 # -----------------------------------------------------------------------------
+
+# Hard stop if Gemini key is missing
+if not gemini_key:
+    st.error(
+        "⚠️ **Gemini API Key not found.**\n\n"
+        "Add the following to your Streamlit secrets:\n\n"
+        "```toml\n"
+        "GEMINI_API_KEY = \"AIza...\"\n"
+        "ZSCALER_API_KEY = \"your-zscaler-key\"\n"
+        "USER_EMAIL = \"you@example.com\"\n"
+        "```"
+    )
+    st.stop()
+
 st.title("🔒 Lokesh's Private AI Chat")
 st.caption(
     "Your conversations are protected by **Zscaler AI Guard** "
@@ -326,13 +359,9 @@ for msg in st.session_state.messages:
 # -----------------------------------------------------------------------------
 # CHAT INPUT
 # -----------------------------------------------------------------------------
-user_input = st.chat_input("What's on your mind......")
+user_input = st.chat_input("Type your message here...")
 
 if user_input:
-
-    if not gemini_key:
-        st.error("Please enter your Google Gemini API Key in the sidebar.")
-        st.stop()
 
     attached_names  = [f.name for f in uploaded_files] if uploaded_files else []
     turn_debug_logs = []
@@ -342,19 +371,16 @@ if user_input:
             st.caption("📎 " + " · ".join(attached_names))
         st.markdown(user_input)
 
-    # STEP 1: Inspect PROMPT -- direction "OUT" (user -> LLM)
+    # STEP 1: Inspect PROMPT -- direction "OUT"
     with st.spinner("🛡️ Zscaler AI Guard inspecting your prompt..."):
         guard_prompt_result, debug_prompt = inspect_with_ai_guard(
             content=user_input,
             direction="OUT",
-            api_key=zscaler_key,
-            email=user_email,
         )
     turn_debug_logs.append(debug_prompt)
 
     prompt_action = guard_prompt_result.get("action", "ALLOW").upper()
 
-    # STEP 2: Decide whether to call Gemini
     if prompt_action == "ALLOW":
         should_call_llm = True
     elif prompt_action == "CAUTION":
@@ -367,7 +393,7 @@ if user_input:
     debug_response        = {"direction": "IN", "http_status": None, "raw_response": None, "error": "Skipped - LLM not called"}
 
     if should_call_llm:
-        # STEP 3: Call Gemini
+        # STEP 2: Call Gemini
         try:
             genai.configure(api_key=gemini_key)
             model = genai.GenerativeModel(GEMINI_MODEL)
@@ -388,18 +414,16 @@ if user_input:
             st.error(f"Gemini API error: {e}")
             llm_response_text = None
 
-        # STEP 4: Inspect RESPONSE -- direction "IN" (LLM -> user)
+        # STEP 3: Inspect RESPONSE -- direction "IN"
         if llm_response_text:
             with st.spinner("🛡️ Zscaler AI Guard inspecting the response..."):
                 guard_response_result, debug_response = inspect_with_ai_guard(
                     content=llm_response_text,
                     direction="IN",
-                    api_key=zscaler_key,
-                    email=user_email,
                 )
             turn_debug_logs.append(debug_response)
 
-    # STEP 5: Determine display content
+    # STEP 4: Determine display content
     response_action = guard_response_result.get("action", "ALLOW").upper()
 
     if not should_call_llm:
@@ -411,7 +435,7 @@ if user_input:
             else f"Your message was blocked before reaching the AI.\n\n**Reason:** {det_str}"
         )
     elif llm_response_text is None:
-        display_content = "Could not get a response from Gemini. Please check your API key."
+        display_content = "Could not get a response from Gemini. Please check your API key in Streamlit secrets."
     elif response_action == "BLOCK":
         detectors = guard_response_result.get("triggeringDetectors", [])
         det_str   = ", ".join(detectors) if detectors else guard_response_result.get("message", "Policy violation")
@@ -423,7 +447,7 @@ if user_input:
     else:
         display_content = llm_response_text
 
-    # STEP 6: Render assistant reply
+    # STEP 5: Render assistant reply
     with st.chat_message("assistant"):
         if should_call_llm and prompt_action == "CAUTION":
             render_guard_result(guard_prompt_result, "Prompt")
@@ -441,7 +465,7 @@ if user_input:
             for dbg in turn_debug_logs:
                 render_debug_panel(dbg)
 
-    # STEP 7: Persist to session state
+    # STEP 6: Persist to session state
     st.session_state.messages.append({
         "role": "user", "content": user_input, "files": attached_names,
         "guard_prompt": guard_prompt_result, "guard_response": None, "debug_entries": [],
